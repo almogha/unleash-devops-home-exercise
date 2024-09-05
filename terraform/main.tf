@@ -1,44 +1,19 @@
 provider "aws" {
-  region = "us-west-2"  # Change to your preferred AWS region
+  region = "us-west-2"
 }
 
-# Define the Docker image as a variable
-variable "docker_image" {
-  description = "The Docker image to deploy on ECS"
-  type        = string
+# VPC
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
 }
 
-# Create an ECS Cluster
-resource "aws_ecs_cluster" "example" {
-  name = "my-fargate-cluster"
+resource "aws_subnet" "main" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
 }
 
-# Create an IAM role for the ECS task execution
-resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "ecsTaskExecutionRole"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action    = "sts:AssumeRole",
-      Effect    = "Allow",
-      Principal = {
-        Service = "ecs-tasks.amazonaws.com"
-      }
-    }]
-  })
-}
-
-# Attach the required policies to the ECS task execution role
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-# Create a security group for the ECS tasks
-resource "aws_security_group" "ecs_security_group" {
-  name   = "ecs-security-group"
+resource "aws_security_group" "ecs_sg" {
   vpc_id = aws_vpc.main.id
-
   ingress {
     from_port   = 3000
     to_port     = 3000
@@ -54,95 +29,70 @@ resource "aws_security_group" "ecs_security_group" {
   }
 }
 
-# Define the ECS task definition
-resource "aws_ecs_task_definition" "example" {
-  family                   = "my-task"
+# ECS Cluster
+resource "aws_ecs_cluster" "main" {
+  name = "ecs-cluster"
+}
+
+# Task Definition
+resource "aws_ecs_task_definition" "app" {
+  family                   = "my-app-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"       # 0.25 vCPU
-  memory                   = "512"       # 512 MB RAM
+  cpu                      = "256"
+  memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{
-    name      = "my-app"
-    image     = "var.docker_username/unleash-app:var.image_tag"  # Reference the Docker image variable
+    name      = "my-app-container"
+    image     = "var.docker_username/unleash-app:var.image_tag" 
     essential = true
     portMappings = [{
       containerPort = 3000
       hostPort      = 3000
+      protocol      = "tcp"
     }]
   }])
 }
 
-# Create an ECS service to run the task definition on Fargate
-resource "aws_ecs_service" "example" {
-  name            = "my-fargate-service"
-  cluster         = aws_ecs_cluster.example.id
-  task_definition = aws_ecs_task_definition.example.arn
+# ECS Service
+resource "aws_ecs_service" "app" {
+  name            = "ecs-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = aws_subnet.main.*.id
-    security_groups = [aws_security_group.ecs_security_group.id]
+    subnets         = [aws_subnet.main.id]
+    security_groups = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.example.arn
-    container_name   = "my-app"
-    container_port   = 3000
-  }
-
-  depends_on = [aws_lb_listener.example]
 }
 
-# VPC and Subnets for the ECS service
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+# IAM Role for ECS Task Execution
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "ecsTaskExecutionRole"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+    }]
+  })
 }
 
-resource "aws_subnet" "main" {
-  count = 2
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.${count.index}.0/24"
-  availability_zone = element(data.aws_availability_zones.available.names, count.index)
+# Attach the AWS managed policy for ECS tasks
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-data "aws_availability_zones" "available" {}
-
-# Create a Load Balancer (ALB)
-resource "aws_lb" "example" {
-  name               = "ecs-lb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.ecs_security_group.id]
-  subnets            = aws_subnet.main.*.id
-}
-
-# Create a Target Group for the ECS service
-resource "aws_lb_target_group" "example" {
-  name        = "ecs-target-group"
-  port        = 3000
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
-}
-
-# Create a Listener for the Load Balancer
-resource "aws_lb_listener" "example" {
-  load_balancer_arn = aws_lb.example.arn
-  port              = 3000
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.example.arn
-  }
-}
-
-# Output the public DNS of the load balancer
-output "alb_dns_name" {
-  description = "The DNS name of the load balancer"
-  value       = aws_lb.example.dns_name
+# Output Public IP or DNS Name of the service
+output "ecs_service_dns" {
+  value = aws_ecs_service.app.network_configuration[0].assign_public_ip
 }
