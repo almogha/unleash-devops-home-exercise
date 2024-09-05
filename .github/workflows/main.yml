@@ -23,7 +23,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
-        run: docker build -t unleash-app:latest .
+        run: docker build --build-arg AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} --build-arg AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} -t unleash-app:latest .
         
       - name: Tag Docker image
         run: docker tag unleash-app:latest ${{ secrets.DOCKER_USERNAME }}/unleash-app:latest
