@@ -59,7 +59,7 @@ resource "aws_ecs_task_definition" "example" {
 
   container_definitions = jsonencode([{
     name      = "my-app"
-    image     = "var.docker_username/unleash-app:latest" 
+    image     = "var.docker_username/unleash-app:var.image_tag" 
     essential = true
     portMappings = [{
       containerPort = 3000

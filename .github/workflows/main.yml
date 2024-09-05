@@ -57,15 +57,3 @@ jobs:
           docker_username: ${{ secrets.DOCKER_USERNAME }}
           image_tag: latest
         run: terraform apply -auto-approve
-
-      - name: Deploy Docker image to ECS
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          IMAGE_TAG: latest
-        run: |
-          aws ecs update-service \
-            --cluster your-ecs-cluster \
-            --service your-ecs-service \
-            --force-new-deployment \
-            --task-definition unleash-app:latest
