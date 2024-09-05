@@ -1,0 +1,25 @@
+# Ignore node_modules folder to avoid copying dependencies twice
+node_modules
+npm-debug.log
+
+# Ignore local TypeScript build outputs
+dist
+*.tsbuildinfo
+
+# Ignore environment variables and sensitive files
+.env
+
+# Ignore editor and OS files
+.DS_Store
+.vscode
+.idea
+
+# Logs
+*.log
+
+# Ignore Docker-related files
+Dockerfile
+docker-compose.yml
+
+readme.md
+
