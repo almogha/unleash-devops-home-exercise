@@ -2,6 +2,12 @@ provider "aws" {
   region = "us-west-2"  # Change to your preferred AWS region
 }
 
+# Define the Docker image as a variable
+variable "docker_image" {
+  description = "The Docker image to deploy on ECS"
+  type        = string
+}
+
 # Create an ECS Cluster
 resource "aws_ecs_cluster" "example" {
   name = "my-fargate-cluster"
@@ -31,7 +37,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
 # Create a security group for the ECS tasks
 resource "aws_security_group" "ecs_security_group" {
   name   = "ecs-security-group"
-  vpc_id = aws_vpc.main.id  # Make sure to reference your VPC ID
+  vpc_id = aws_vpc.main.id
 
   ingress {
     from_port   = 3000
@@ -59,7 +65,7 @@ resource "aws_ecs_task_definition" "example" {
 
   container_definitions = jsonencode([{
     name      = "my-app"
-    image     = "var.docker_username/unleash-app:var.image_tag" 
+    image     = "var.docker_username/unleash-app:var.image_tag"  # Reference the Docker image variable
     essential = true
     portMappings = [{
       containerPort = 3000
@@ -77,10 +83,18 @@ resource "aws_ecs_service" "example" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = aws_subnet.main.*.id  # Ensure you reference the correct subnets
+    subnets         = aws_subnet.main.*.id
     security_groups = [aws_security_group.ecs_security_group.id]
     assign_public_ip = true
   }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.example.arn
+    container_name   = "my-app"
+    container_port   = 3000
+  }
+
+  depends_on = [aws_lb_listener.example]
 }
 
 # VPC and Subnets for the ECS service
@@ -96,3 +110,39 @@ resource "aws_subnet" "main" {
 }
 
 data "aws_availability_zones" "available" {}
+
+# Create a Load Balancer (ALB)
+resource "aws_lb" "example" {
+  name               = "ecs-lb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.ecs_security_group.id]
+  subnets            = aws_subnet.main.*.id
+}
+
+# Create a Target Group for the ECS service
+resource "aws_lb_target_group" "example" {
+  name        = "ecs-target-group"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+}
+
+# Create a Listener for the Load Balancer
+resource "aws_lb_listener" "example" {
+  load_balancer_arn = aws_lb.example.arn
+  port              = 3000
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.example.arn
+  }
+}
+
+# Output the public DNS of the load balancer
+output "alb_dns_name" {
+  description = "The DNS name of the load balancer"
+  value       = aws_lb.example.dns_name
+}
