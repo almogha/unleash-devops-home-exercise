@@ -52,7 +52,7 @@ resource "aws_ecs_task_definition" "app_task" {
 
   container_definitions = jsonencode([{
     name      = "unleash-app"
-    image     = "${var.docker_username}/unleash-app:${var.image_tag}"
+    image     = "${docker_username}/unleash-app:${image_tag}"
     cpu       = 256
     memory    = 512
     essential = true
