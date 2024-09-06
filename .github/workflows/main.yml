@@ -56,4 +56,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           docker_username: ${{ secrets.DOCKER_USERNAME }}
           image_tag: latest
-        run: terraform apply -auto-approve
+        run: terraform destroy

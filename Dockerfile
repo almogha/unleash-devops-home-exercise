@@ -1,23 +1,17 @@
 # Stage 1: Build Stage
 FROM node:18-alpine AS base
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies, including dev dependencies for TypeScript
 RUN npm install
 
-# Copy the rest of the application files
 COPY tsconfig.json ./
 COPY index.ts ./
 
-# Install TypeScript and types for express and node
 RUN npm install --save-dev typescript @types/node @types/express
 
-# Build the TypeScript code
 RUN npm run build
 
 # Stage 2: Production Image
