@@ -1,98 +1,94 @@
-provider "aws" {
-  region = "us-west-2"
+# Create an ECS cluster
+resource "aws_ecs_cluster" "ecs_cluster" {
+  name = "my-ecs-cluster"
 }
 
-# VPC
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-}
+resource "aws_ecs_capacity_provider" "ecs_capacity_provider" {
+  name = "test1"
 
-resource "aws_subnet" "main" {
-  vpc_id     = aws_vpc.main.id
-  cidr_block = "10.0.1.0/24"
-}
+  auto_scaling_group_provider {
+    auto_scaling_group_arn = aws_autoscaling_group.ecs_asg.arn
 
-resource "aws_security_group" "ecs_sg" {
-  vpc_id = aws_vpc.main.id
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    managed_scaling {
+      maximum_scaling_step_size = 1000
+      minimum_scaling_step_size = 1
+      status                    = "ENABLED"
+      target_capacity           = 3
+    }
   }
 }
 
-# ECS Cluster
-resource "aws_ecs_cluster" "main" {
-  name = "ecs-cluster"
+resource "aws_ecs_cluster_capacity_providers" "example" {
+  cluster_name = aws_ecs_cluster.ecs_cluster.name
+
+  capacity_providers = [aws_ecs_capacity_provider.ecs_capacity_provider.name]
+
+  default_capacity_provider_strategy {
+    base              = 1
+    weight            = 100
+    capacity_provider = aws_ecs_capacity_provider.ecs_capacity_provider.name
+  }
 }
 
-# Task Definition
-resource "aws_ecs_task_definition" "app" {
-  family                   = "my-app-task"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = "my-app-container"
-    image     = "var.docker_username/unleash-app:var.image_tag" 
-    essential = true
-    portMappings = [{
-      containerPort = 3000
-      hostPort      = 3000
-      protocol      = "tcp"
-    }]
-  }])
+# Define the ECS task definition for the service
+resource "aws_ecs_task_definition" "ecs_task_definition" {
+  family             = "my-ecs-task"
+  network_mode       = "awsvpc"
+  execution_role_arn = "arn:aws:iam::905418187602:role/ecsTaskExecutionRole"
+  cpu                = 256
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+  container_definitions = jsonencode([
+    {
+      name      = "dockergs"
+      image     = "nginx:latest"
+      cpu       = 256
+      memory    = 512
+      essential = true
+      portMappings = [
+        {
+          containerPort = 80
+          hostPort      = 80
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
 }
 
-# ECS Service
-resource "aws_ecs_service" "app" {
-  name            = "ecs-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 1
-  launch_type     = "FARGATE"
+# Define the ECS service that will run the task
+resource "aws_ecs_service" "ecs_service" {
+  name            = "my-ecs-service"
+  cluster         = aws_ecs_cluster.ecs_cluster.id
+  task_definition = aws_ecs_task_definition.ecs_task_definition.arn
+  desired_count   = 2
 
   network_configuration {
-    subnets         = [aws_subnet.main.id]
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
+    subnets         = [aws_subnet.subnet.id, aws_subnet.subnet2.id]
+    security_groups = [aws_security_group.security_group.id]
   }
-}
 
-# IAM Role for ECS Task Execution
-resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "ecsTaskExecutionRole"
+  force_new_deployment = true
+  placement_constraints {
+    type = "distinctInstance"
+  }
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action    = "sts:AssumeRole",
-      Effect    = "Allow",
-      Principal = {
-        Service = "ecs-tasks.amazonaws.com"
-      }
-    }]
-  })
-}
+  triggers = {
+    redeployment = timestamp()
+  }
 
-# Attach the AWS managed policy for ECS tasks
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
+  capacity_provider_strategy {
+    capacity_provider = aws_ecs_capacity_provider.ecs_capacity_provider.name
+    weight            = 100
+  }
 
-# Output Public IP or DNS Name of the service
-output "ecs_service_dns" {
-  value = aws_ecs_service.app.network_configuration[0].assign_public_ip
+  load_balancer {
+    target_group_arn = aws_lb_target_group.ecs_tg.arn
+    container_name   = "dockergs"
+    container_port   = 80
+  }
+
+  depends_on = [aws_autoscaling_group.ecs_asg]
 }
